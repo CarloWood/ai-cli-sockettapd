@@ -1,10 +1,17 @@
 #pragma once
 
 #include "Application.h"
+#include <boost/intrusive_ptr.hpp>
 #include <filesystem>
+#include <optional>
+#include <string>
 #ifdef CWDEBUG
 #include <mutex>
 #endif
+
+namespace evio {
+class Socket;
+} // namespace evio
 
 // Sockettapd
 //
@@ -15,6 +22,9 @@ class Sockettapd final : public Application
   bool opt_foreground_{false};                  // Set if --foreground.
   bool opt_one_shot_{false};                    // Set if --one-shot.
   std::filesystem::path project_dir_;           // Argument passed to --projectdir <dir>.
+  std::string socket_arg_{ "shell_exec" };      // Argument passed to --socket <arg>.
+  std::optional<UUID> thread_id_;               // Set once by received_thread_id().
+  boost::intrusive_ptr<evio::Socket> client_;   // Current client for thread_id_ (if any).
 #ifdef CWDEBUG
   std::filesystem::path logfile_name_;          // Argument passed to --log <file>.
   std::mutex logfile_mutex_;                    // Used to protect the logfile.
@@ -32,7 +42,7 @@ class Sockettapd final : public Application
   void goto_background();
 
   // Called when a thread ID was received through the <config-session>...</config-session> message.
-  void received_thread_id(UUID const& thread_id);
+  void received_thread_id(UUID const& thread_id, evio::Socket& client);
 
   // Get application instance.
   static Sockettapd& instance() { return static_cast<Sockettapd&>(Application::instance()); }
@@ -40,6 +50,7 @@ class Sockettapd final : public Application
   // Option accessors.
   bool one_shot() const { return opt_one_shot_; }
   bool foreground() const { return opt_foreground_; }
+  std::string socket_name() const { return socket_arg_ + ".sock"; }
 
  protected:
   // Parse remountd-specific command line parameters.

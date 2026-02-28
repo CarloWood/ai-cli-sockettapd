@@ -1,6 +1,7 @@
 #include "sys.h"
 #include "Sockettapd.h"
 #include "utils/AIAlert.h"
+#include "evio/Socket.h"
 #include <unistd.h>
 
 Sockettapd::Sockettapd(int argc, char* argv[])
@@ -25,11 +26,13 @@ void Sockettapd::command_line_parameters_parsed()
 {
   DoutEntering(dc::notice, "Sockettapd::command_line_parameters_parsed()");
 
+#ifdef CWDEBUG
   // Make logfile_name_ absolute.
   if (logfile_name_.is_relative())
     logfile_name_ = project_dir_ / logfile_name_;
 
   Dout(dc::notice, "logfile_name_ is now " << logfile_name_);
+#endif
 
   // Switch to the background BEFORE creating any threads!
   if (!opt_foreground_)
@@ -50,6 +53,18 @@ bool Sockettapd::parse_command_line_parameter(std::string_view arg, int argc, ch
   if (arg == "--foreground")
   {
     opt_foreground_ = true;
+    return true;
+  }
+
+  if (arg == "--socket")
+  {
+    ++*index;
+    if (*index >= argc)
+      THROW_ALERT("Missing argument for [ARG]", AIArgs("[ARG]", arg));
+    socket_arg_ = argv[*index];
+    if (socket_arg_.empty())
+      THROW_ALERT("Empty value for [ARG].", AIArgs("[ARG]", arg));
+    Dout(dc::notice, "socket_arg_ set to " << socket_arg_ << ".");
     return true;
   }
 
@@ -79,7 +94,7 @@ bool Sockettapd::parse_command_line_parameter(std::string_view arg, int argc, ch
 //virtual
 void Sockettapd::print_usage_extra(std::ostream& os) const
 {
-  os << "[--one-shot][--foreground][--projectdir <dirname>][--log <logfile>]";
+  os << "[--one-shot][--foreground][--projectdir <dirname>][--log <logfile>][--socket <name>]";
 }
 
 //virtual
@@ -111,4 +126,31 @@ void Sockettapd::goto_background()
     Dout(dc::notice, "Turned all debug output on again!");
   }
 #endif
+}
+
+void Sockettapd::received_thread_id(UUID const& thread_id, evio::Socket& client)
+{
+  DoutEntering(dc::notice, "Sockettapd::received_thread_id(" << thread_id << ", " << &client << ")");
+
+  boost::intrusive_ptr<evio::Socket> new_client(&client);
+
+  if (!thread_id_)
+  {
+    thread_id_ = thread_id;
+    client_ = std::move(new_client);
+    return;
+  }
+
+  if (*thread_id_ != thread_id)
+  {
+    // This client is not compatible with the thread that owns this daemon.
+    client.close();
+    THROW_ALERT("Received a different Thread ID ([NEW]) than expected ([OLD]).",
+        AIArgs("[NEW]", thread_id)("[OLD]", *thread_id_));
+  }
+
+  // Same thread id: keep the newest connection and drop any older still-connected client.
+  if (client_ && client_.get() != new_client.get())
+    client_->close();
+  client_ = std::move(new_client);
 }

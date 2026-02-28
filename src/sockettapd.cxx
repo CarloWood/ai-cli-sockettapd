@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
     ASSERT(libcwd::libcw_do.always_flush_is_on());
 
     std::string projectdir = ::getenv("PROJECTDIR");
-    std::string socket_address = projectdir + "/shell_exec.sock";
+    std::string socket_address = projectdir + "/" + application.socket_name();
     evio::SocketAddress endpoint(socket_address);
     Dout(dc::notice, "endpoint = " << endpoint);
 

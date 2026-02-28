@@ -2,6 +2,7 @@
 #include "Sockettapd.h"
 #include "STDecoder.h"
 #include "debug.h"
+#include "evio/Socket.h"
 
 void STDecoder::decode(int& allow_deletion_count, evio::MsgBlock&& msg)
 {
@@ -21,5 +22,6 @@ void STDecoder::thread_id_received(UUID const& thread_id)
 {
   DoutEntering(dc::notice, "STDecoder::thread_id_received(" << thread_id << ") [" << this << ']');
 
-  Sockettapd::instance().received_thread_id(thread_id);
+  evio::Socket* const client = static_cast<evio::Socket*>(m_input_device);
+  Sockettapd::instance().received_thread_id(thread_id, *client);
 }

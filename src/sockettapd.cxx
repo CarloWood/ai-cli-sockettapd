@@ -21,9 +21,8 @@ int main(int argc, char* argv[])
     // Check that libcwd is always flushing.
     ASSERT(libcwd::libcw_do.always_flush_is_on());
 
-    std::string projectdir = ::getenv("PROJECTDIR");
-    std::string socket_address = projectdir + "/" + application.socket_name();
-    evio::SocketAddress endpoint(socket_address);
+    std::filesystem::path const socket_path = application.projectdir() / "AAP" / application.socket_name();
+    evio::SocketAddress endpoint(socket_path.native());
     Dout(dc::notice, "endpoint = " << endpoint);
 
     // An object that allows us to write to an ostream

@@ -21,7 +21,7 @@ class Sockettapd final : public Application
  private:
   bool opt_foreground_{false};                  // Set if --foreground.
   bool opt_one_shot_{false};                    // Set if --one-shot.
-  std::filesystem::path project_dir_;           // Argument passed to --projectdir <dir>.
+  mutable std::filesystem::path projectdir_;    // Argument passed to --projectdir <dir>, or read from $PROJECTDIR.
   std::string socket_arg_{ "shell_exec" };      // Argument passed to --socket <arg>.
   std::optional<UUID> thread_id_;               // Set once by received_thread_id().
   boost::intrusive_ptr<evio::Socket> client_;   // Current client for thread_id_ (if any).
@@ -30,6 +30,9 @@ class Sockettapd final : public Application
   std::mutex logfile_mutex_;                    // Used to protect the logfile.
   std::ofstream logfile_;                       // Log file, opened if --log is given and the daemon runs in the background.
 #endif
+
+ private:
+  void create_thread_id_dir();
 
  public:
   // Construct and initialize base application state.
@@ -51,6 +54,7 @@ class Sockettapd final : public Application
   bool one_shot() const { return opt_one_shot_; }
   bool foreground() const { return opt_foreground_; }
   std::string socket_name() const { return socket_arg_ + ".sock"; }
+  std::filesystem::path const& projectdir() const;
 
  protected:
   // Parse remountd-specific command line parameters.

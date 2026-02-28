@@ -2,6 +2,7 @@
 #include "Sockettapd.h"
 #include "utils/AIAlert.h"
 #include "evio/Socket.h"
+#include <boost/uuid/uuid_io.hpp>
 #include <unistd.h>
 
 Sockettapd::Sockettapd(int argc, char* argv[])
@@ -21,6 +22,18 @@ Sockettapd::~Sockettapd()
 #endif
 }
 
+std::filesystem::path const& Sockettapd::projectdir() const
+{
+  if (projectdir_.empty())
+  {
+    char const* const projectdir_env = ::getenv("PROJECTDIR");
+    if (!projectdir_env || !*projectdir_env)
+      THROW_ALERT("PROJECTDIR is not set and --projectdir was not passed.");
+    projectdir_ = projectdir_env;
+  }
+  return projectdir_;
+}
+
 //virtual
 void Sockettapd::command_line_parameters_parsed()
 {
@@ -29,7 +42,7 @@ void Sockettapd::command_line_parameters_parsed()
 #ifdef CWDEBUG
   // Make logfile_name_ absolute.
   if (logfile_name_.is_relative())
-    logfile_name_ = project_dir_ / logfile_name_;
+    logfile_name_ = projectdir() / logfile_name_;
 
   Dout(dc::notice, "logfile_name_ is now " << logfile_name_);
 #endif
@@ -75,8 +88,8 @@ bool Sockettapd::parse_command_line_parameter(std::string_view arg, int argc, ch
       THROW_ALERT("Missing argument for [ARG]", AIArgs("[ARG]", arg));
     if (arg == "--projectdir")
     {
-      project_dir_ = argv[*index];
-      Dout(dc::notice, "project_dir_ set to " << project_dir_ << ".");
+      projectdir_ = argv[*index];
+      Dout(dc::notice, "projectdir_ set to " << projectdir_ << ".");
     }
 #ifdef CWDEBUG
     else
@@ -128,6 +141,69 @@ void Sockettapd::goto_background()
 #endif
 }
 
+void Sockettapd::create_thread_id_dir()
+{
+  // Create $PROJECTDIR/AAP/ThreadID/<uuid> and update $PROJECTDIR/AAP/{planner,coder}/id symlink if applicable.
+
+  std::string const uuid_str = boost::uuids::to_string(thread_id_.value());
+  std::filesystem::path const thread_dir = projectdir() / "AAP" / "ThreadID" / uuid_str;
+  {
+    std::error_code ec;
+    std::filesystem::create_directories(thread_dir, ec);
+    if (ec)
+      THROW_ALERT("Failed to create directory [DIR]: [ERROR].", AIArgs("[DIR]", thread_dir.string())("[ERROR]", ec.message()));
+  }
+
+  if (socket_arg_ == "planner" || socket_arg_ == "coder")
+  {
+    std::filesystem::path const link_path = projectdir() / "AAP" / socket_arg_ / "id";
+    std::error_code ec;
+    if (std::filesystem::exists(link_path, ec))
+    {
+      if (ec)
+        THROW_ALERT("Failed to check existence of [PATH]: [ERROR].", AIArgs("[PATH]", link_path.string())("[ERROR]", ec.message()));
+
+      if (!std::filesystem::is_symlink(link_path, ec))
+      {
+        if (ec)
+          THROW_ALERT("Failed to stat [PATH]: [ERROR].", AIArgs("[PATH]", link_path.string())("[ERROR]", ec.message()));
+        THROW_ALERT("[PATH] exists but is not a symlink.", AIArgs("[PATH]", link_path.string()));
+      }
+
+      std::filesystem::path const target = std::filesystem::read_symlink(link_path, ec);
+      if (ec)
+        THROW_ALERT("Failed to read symlink [PATH]: [ERROR].", AIArgs("[PATH]", link_path.string())("[ERROR]", ec.message()));
+
+      std::filesystem::path const target_abs = std::filesystem::weakly_canonical(link_path.parent_path() / target, ec);
+      if (ec)
+        THROW_ALERT("Failed to canonicalize symlink target [TARGET]: [ERROR].", AIArgs("[TARGET]", target.string())("[ERROR]", ec.message()));
+      std::filesystem::path const thread_dir_abs = std::filesystem::weakly_canonical(thread_dir, ec);
+      if (ec)
+        THROW_ALERT("Failed to canonicalize directory [DIR]: [ERROR].", AIArgs("[DIR]", thread_dir.string())("[ERROR]", ec.message()));
+
+      if (target_abs != thread_dir_abs)
+      {
+        std::filesystem::remove(link_path, ec);
+        if (ec)
+          THROW_ALERT("Failed to remove symlink [PATH]: [ERROR].", AIArgs("[PATH]", link_path.string())("[ERROR]", ec.message()));
+        std::filesystem::create_directory_symlink(thread_dir, link_path, ec);
+        if (ec)
+          THROW_ALERT("Failed to create symlink [PATH] -> [TARGET]: [ERROR].",
+              AIArgs("[PATH]", link_path.string())("[TARGET]", thread_dir.string())("[ERROR]", ec.message()));
+      }
+    }
+    else
+    {
+      if (ec)
+        THROW_ALERT("Failed to check existence of [PATH]: [ERROR].", AIArgs("[PATH]", link_path.string())("[ERROR]", ec.message()));
+      std::filesystem::create_directory_symlink(thread_dir, link_path, ec);
+      if (ec)
+        THROW_ALERT("Failed to create symlink [PATH] -> [TARGET]: [ERROR].",
+            AIArgs("[PATH]", link_path.string())("[TARGET]", thread_dir.string())("[ERROR]", ec.message()));
+    }
+  }
+}
+
 void Sockettapd::received_thread_id(UUID const& thread_id, evio::Socket& client)
 {
   DoutEntering(dc::notice, "Sockettapd::received_thread_id(" << thread_id << ", " << &client << ")");
@@ -137,6 +213,7 @@ void Sockettapd::received_thread_id(UUID const& thread_id, evio::Socket& client)
   if (!thread_id_)
   {
     thread_id_ = thread_id;
+    create_thread_id_dir();
     client_ = std::move(new_client);
     return;
   }

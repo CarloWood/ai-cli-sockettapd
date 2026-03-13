@@ -283,7 +283,7 @@ void Sockettapd::received_session_id(SessionID const& session_id, evio::Socket& 
     // This client is not compatible with the thread that owns this daemon.
     client.close();
     THROW_ALERT("Received a different Thread ID ([NEW]) than expected ([OLD]).",
-        AIArgs("[NEW]", session_id)("[OLD]", *session_id_));
+        AIArgs("[NEW]", session_id.to_string())("[OLD]", session_id_->to_string()));
   }
 
   // Same thread id: keep the newest connection and drop any older still-connected client.

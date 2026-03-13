@@ -36,6 +36,9 @@ class OpencodeSessionID
 
   std::string to_string() const;
 
+  friend bool operator==(OpencodeSessionID const& lhs, OpencodeSessionID const& rhs) = default;
+  friend bool operator!=(OpencodeSessionID const& lhs, OpencodeSessionID const& rhs) = default;
+
 #ifdef CWDEBUG
   void print_on(std::ostream& os) const;
 #endif

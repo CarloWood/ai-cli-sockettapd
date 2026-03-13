@@ -18,10 +18,10 @@ void STDecoder::decode(int& allow_deletion_count, evio::MsgBlock&& msg)
   }
 }
 
-void STDecoder::thread_id_received(UUID const& thread_id)
+void STDecoder::session_id_received(SessionID const& session_id)
 {
-  DoutEntering(dc::notice, "STDecoder::thread_id_received(" << thread_id << ") [" << this << ']');
+  DoutEntering(dc::notice, "STDecoder::session_id_received(" << session_id << ") [" << this << ']');
 
   evio::Socket* const client = static_cast<evio::Socket*>(m_input_device);
-  Sockettapd::instance().received_thread_id(thread_id, *client);
+  Sockettapd::instance().received_session_id(session_id, *client);
 }

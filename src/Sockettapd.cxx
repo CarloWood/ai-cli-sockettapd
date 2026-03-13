@@ -2,7 +2,9 @@
 #include "Sockettapd.h"
 #include "utils/AIAlert.h"
 #include "evio/Socket.h"
-#include <boost/uuid/uuid_io.hpp>
+#include <cctype>
+#include <fstream>
+#include <iterator>
 #include <unistd.h>
 
 Sockettapd::Sockettapd(int argc, char* argv[])
@@ -141,17 +143,75 @@ void Sockettapd::goto_background()
 #endif
 }
 
-void Sockettapd::create_thread_id_dir()
+void Sockettapd::create_session_id_dir(evio::Socket& client)
 {
-  // Create $PROJECTDIR/AAP/ThreadID/<uuid> and update $PROJECTDIR/AAP/{planner,coder}/id symlink if applicable.
+  // Create $PROJECTDIR/AAP/ThreadID/<session_id> and update $PROJECTDIR/AAP/{planner,coder}/id symlink if applicable.
 
-  std::string const uuid_str = boost::uuids::to_string(thread_id_.value());
-  std::filesystem::path const thread_dir = projectdir() / "AAP" / "ThreadID" / uuid_str;
+  std::string const session_id_str = session_id_.value().to_string();
+  std::filesystem::path const thread_dir = projectdir() / "AAP" / "ThreadID" / session_id_str;
   {
     std::error_code ec;
     std::filesystem::create_directories(thread_dir, ec);
     if (ec)
       THROW_ALERT("Failed to create directory [DIR]: [ERROR].", AIArgs("[DIR]", thread_dir.string())("[ERROR]", ec.message()));
+  }
+
+  // Record (or verify) the mode of this thread directory.
+  // A thread can only be owned by one daemon mode (socket_arg_).
+  {
+    std::filesystem::path const mode_path = thread_dir / "mode";
+    std::error_code ec;
+    if (std::filesystem::exists(mode_path, ec))
+    {
+      if (ec)
+        THROW_ALERT("Failed to check existence of [PATH]: [ERROR].", AIArgs("[PATH]", mode_path.string())("[ERROR]", ec.message()));
+
+      if (!std::filesystem::is_regular_file(mode_path, ec))
+      {
+        if (ec)
+          THROW_ALERT("Failed to stat [PATH]: [ERROR].", AIArgs("[PATH]", mode_path.string())("[ERROR]", ec.message()));
+        THROW_ALERT("[PATH] exists but is not a regular file.", AIArgs("[PATH]", mode_path.string()));
+      }
+
+      std::ifstream in(mode_path, std::ios::in | std::ios::binary);
+      if (!in)
+        THROW_ALERT("Failed to open [PATH] for reading.", AIArgs("[PATH]", mode_path.string()));
+
+      std::string mode_value((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      if (!in.good() && !in.eof())
+        THROW_ALERT("Failed to read [PATH].", AIArgs("[PATH]", mode_path.string()));
+
+      auto trim = [](std::string& s) {
+        auto const is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+        while (!s.empty() && is_space(static_cast<unsigned char>(s.back())))
+          s.pop_back();
+        size_t start = 0;
+        while (start < s.size() && is_space(static_cast<unsigned char>(s[start])))
+          ++start;
+        if (start > 0)
+          s.erase(0, start);
+      };
+      trim(mode_value);
+
+      if (mode_value != socket_arg_)
+      {
+        client.close();
+        THROW_ALERT("ThreadID directory [DIR] is already in mode [MODE] (expected [EXPECTED]).",
+            AIArgs("[DIR]", thread_dir.string())("[MODE]", mode_value)("[EXPECTED]", socket_arg_));
+      }
+    }
+    else
+    {
+      if (ec)
+        THROW_ALERT("Failed to check existence of [PATH]: [ERROR].", AIArgs("[PATH]", mode_path.string())("[ERROR]", ec.message()));
+
+      std::ofstream out(mode_path, std::ios::out | std::ios::binary | std::ios::trunc);
+      if (!out)
+        THROW_ALERT("Failed to open [PATH] for writing.", AIArgs("[PATH]", mode_path.string()));
+      out << socket_arg_ << "\n";
+      if (!out)
+        THROW_ALERT("Failed to write [PATH].", AIArgs("[PATH]", mode_path.string()));
+    }
   }
 
   if (socket_arg_ == "planner" || socket_arg_ == "coder")
@@ -204,26 +264,26 @@ void Sockettapd::create_thread_id_dir()
   }
 }
 
-void Sockettapd::received_thread_id(UUID const& thread_id, evio::Socket& client)
+void Sockettapd::received_session_id(SessionID const& session_id, evio::Socket& client)
 {
-  DoutEntering(dc::notice, "Sockettapd::received_thread_id(" << thread_id << ", " << &client << ")");
+  DoutEntering(dc::notice, "Sockettapd::received_session_id(" << session_id << ", " << &client << ")");
 
   boost::intrusive_ptr<evio::Socket> new_client(&client);
 
-  if (!thread_id_)
+  if (!session_id_)
   {
-    thread_id_ = thread_id;
-    create_thread_id_dir();
+    session_id_ = session_id;
+    create_session_id_dir(client);
     client_ = std::move(new_client);
     return;
   }
 
-  if (*thread_id_ != thread_id)
+  if (*session_id_ != session_id)
   {
     // This client is not compatible with the thread that owns this daemon.
     client.close();
     THROW_ALERT("Received a different Thread ID ([NEW]) than expected ([OLD]).",
-        AIArgs("[NEW]", thread_id)("[OLD]", *thread_id_));
+        AIArgs("[NEW]", session_id)("[OLD]", *session_id_));
   }
 
   // Same thread id: keep the newest connection and drop any older still-connected client.

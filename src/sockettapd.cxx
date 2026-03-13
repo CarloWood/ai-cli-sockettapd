@@ -5,6 +5,8 @@
 #include "utils/debug_ostream_operators.h"      // Needed to write error to Dout.
 #include "utils/AIAlert.h"
 #include "debug.h"
+#include <sstream>
+#include <syslog.h>
 
 int main(int argc, char* argv[])
 {
@@ -17,6 +19,14 @@ int main(int argc, char* argv[])
     Sockettapd application(argc, argv);
 
     // If --foreground is not specified then now we are running as a background process.
+    bool const syslog_enabled = !application.foreground();
+    struct SyslogGuard
+    {
+      bool enabled_;
+      explicit SyslogGuard(bool enabled) : enabled_(enabled) { if (enabled_) ::openlog("sockettapd", LOG_PID, LOG_DAEMON); }
+      ~SyslogGuard() { if (enabled_) ::closelog(); }
+    };
+    SyslogGuard syslog_guard(syslog_enabled);
 
     // Check that libcwd is always flushing.
     ASSERT(libcwd::libcw_do.always_flush_is_on());
@@ -42,6 +52,12 @@ int main(int argc, char* argv[])
     catch (AIAlert::Error const& error)
     {
       Dout(dc::warning, error);
+      if (syslog_enabled)
+      {
+        std::ostringstream oss;
+        oss << error;
+        ::syslog(LOG_WARNING, "%s", oss.str().c_str());
+      }
     }
   }
   catch (NoError const&)

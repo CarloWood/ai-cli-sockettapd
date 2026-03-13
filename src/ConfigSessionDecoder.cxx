@@ -15,7 +15,7 @@ void ConfigSessionDecoder::decode(int& allow_deletion_count, evio::MsgBlock&& ms
 
   std::string_view const line = msg.view();
 
-  if (!have_thread_id_)
+  if (!have_session_id_)
   {
     auto const open_pos = line.find(session_id_open);
     if (open_pos != std::string_view::npos)
@@ -24,9 +24,9 @@ void ConfigSessionDecoder::decode(int& allow_deletion_count, evio::MsgBlock&& ms
       auto const close_pos = line.find(session_id_close, value_pos);
       if (close_pos != std::string_view::npos && close_pos > value_pos)
       {
-        std::string_view const uuid_sv = line.substr(value_pos, close_pos - value_pos);
-        thread_id_.assign_from_json_string(uuid_sv);
-        have_thread_id_ = true;
+        std::string_view const session_id_sv = line.substr(value_pos, close_pos - value_pos);
+        session_id_.assign_from_json_string(session_id_sv);
+        have_session_id_ = true;
       }
       return;
     }
@@ -34,7 +34,7 @@ void ConfigSessionDecoder::decode(int& allow_deletion_count, evio::MsgBlock&& ms
 
   if (line == "</config-session>\n")
   {
-    if (!have_thread_id_)
+    if (!have_session_id_)
       THROW_LALERT("Received </config-session> without <session-id> block!");
 
     // Call begin(return_decoder) before passing ConfigSessionDecoder the to switch_protocol_decoder.
@@ -42,6 +42,6 @@ void ConfigSessionDecoder::decode(int& allow_deletion_count, evio::MsgBlock&& ms
     switch_protocol_decoder(*return_decoder_);
 
     // Pass the decoded Thread ID back to STDecoder.
-    return_decoder_->thread_id_received(thread_id_);
+    return_decoder_->session_id_received(session_id_);
   }
 }

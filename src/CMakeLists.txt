@@ -5,6 +5,7 @@ add_executable(sockettapd
   STDecoder.cxx
   Sockettapd.cxx
   UUID.cxx
+  OpencodeSessionID.cxx
   utils.cxx
 )
 

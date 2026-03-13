@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Application.h"
+#include "SessionID.h"
 #include <boost/intrusive_ptr.hpp>
 #include <filesystem>
 #include <optional>
@@ -23,8 +24,8 @@ class Sockettapd final : public Application
   bool opt_one_shot_{false};                    // Set if --one-shot.
   mutable std::filesystem::path projectdir_;    // Argument passed to --projectdir <dir>, or read from $PROJECTDIR.
   std::string socket_arg_{ "shell_exec" };      // Argument passed to --socket <arg>.
-  std::optional<UUID> thread_id_;               // Set once by received_thread_id().
-  boost::intrusive_ptr<evio::Socket> client_;   // Current client for thread_id_ (if any).
+  std::optional<SessionID> session_id_;         // Set once by received_session_id().
+  boost::intrusive_ptr<evio::Socket> client_;   // Current client for session_id_ (if any).
 #ifdef CWDEBUG
   std::filesystem::path logfile_name_;          // Argument passed to --log <file>.
   std::mutex logfile_mutex_;                    // Used to protect the logfile.
@@ -32,7 +33,7 @@ class Sockettapd final : public Application
 #endif
 
  private:
-  void create_thread_id_dir();
+  void create_session_id_dir(evio::Socket& client);
 
  public:
   // Construct and initialize base application state.
@@ -45,7 +46,7 @@ class Sockettapd final : public Application
   void goto_background();
 
   // Called when a thread ID was received through the <config-session>...</config-session> message.
-  void received_thread_id(UUID const& thread_id, evio::Socket& client);
+  void received_session_id(SessionID const& session_id, evio::Socket& client);
 
   // Get application instance.
   static Sockettapd& instance() { return static_cast<Sockettapd&>(Application::instance()); }

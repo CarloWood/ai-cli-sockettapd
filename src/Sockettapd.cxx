@@ -145,7 +145,7 @@ void Sockettapd::goto_background()
 
 void Sockettapd::create_session_id_dir(evio::Socket& client)
 {
-  // Create $PROJECTDIR/AAP/ThreadID/<session_id> and update $PROJECTDIR/AAP/{planner,coder}/id symlink if applicable.
+  // Create $PROJECTDIR/AAP/ThreadID/<session_id> and update $PROJECTDIR/AAP/{analyst,planner,coder}/id symlink if applicable.
 
   std::string const session_id_str = session_id_.value().to_string();
   std::filesystem::path const thread_dir = projectdir() / "AAP" / "ThreadID" / session_id_str;
@@ -214,7 +214,7 @@ void Sockettapd::create_session_id_dir(evio::Socket& client)
     }
   }
 
-  if (socket_arg_ == "planner" || socket_arg_ == "coder")
+  if (socket_arg_ == "analyst" || socket_arg_ == "planner" || socket_arg_ == "coder")
   {
     std::filesystem::path const link_path = projectdir() / "AAP" / socket_arg_ / "id";
     std::error_code ec;

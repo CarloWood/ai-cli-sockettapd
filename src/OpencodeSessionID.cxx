@@ -20,7 +20,7 @@ void OpencodeSessionID::assign_from_string(std::string_view const& sv)
   if (!sv.starts_with("ses_"))
     THROW_ALERT("OpencodeSessionID must start with 'ses_'.");
 
-  if (!sv.length() != 30)
+  if (sv.length() != 30)
     THROW_ALERT("OpencodeSessionID has unexpected length [LEN].", AIArgs("[LEN]", sv.length()));
 
   std::string_view const timestamp_sv(sv.substr(4, 12));

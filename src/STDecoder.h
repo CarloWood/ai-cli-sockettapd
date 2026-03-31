@@ -2,6 +2,7 @@
 
 #include "ConfigSessionDecoder.h"
 #include "evio/protocol/Decoder.h"
+#include <string>
 
 // Decoder for the accepted socket.
 // ST = Socket Tap.
@@ -11,7 +12,7 @@ class STDecoder : public evio::protocol::Decoder
   STDecoder() = default;
 
   // Called by config_session_decoder_.
-  void session_id_received(SessionID const& session_id);
+  void session_id_received(SessionID const& session_id, std::string const& agent_name);
 
  protected:
   // Call decode() with chunks ending on a newline (the default).
@@ -20,4 +21,3 @@ class STDecoder : public evio::protocol::Decoder
  private:
   ConfigSessionDecoder config_session_decoder_;
 };
-

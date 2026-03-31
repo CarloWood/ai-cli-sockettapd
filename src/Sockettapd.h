@@ -23,8 +23,10 @@ class Sockettapd final : public Application
   bool opt_foreground_{false};                  // Set if --foreground.
   bool opt_one_shot_{false};                    // Set if --one-shot.
   mutable std::filesystem::path projectdir_;    // Argument passed to --projectdir <dir>, or read from $PROJECTDIR.
+  mutable std::filesystem::path planroot_;      // Argument passed to --planroot <dir>, or read from $PLANROOT.
   std::string socket_arg_{ "shell_exec" };      // Argument passed to --socket <arg>.
-  std::optional<SessionID> session_id_;         // Set once by received_session_id().
+  std::optional<SessionID> session_id_;         // Set by received_session_id().
+  std::string agent_name_;                      // Set by received_session_id().
   boost::intrusive_ptr<evio::Socket> client_;   // Current client for session_id_ (if any).
 #ifdef CWDEBUG
   std::filesystem::path logfile_name_;          // Argument passed to --log <file>.
@@ -33,7 +35,7 @@ class Sockettapd final : public Application
 #endif
 
  private:
-  void create_session_id_dir(evio::Socket& client);
+  void create_session_id_dir();
 
  public:
   // Construct and initialize base application state.
@@ -46,7 +48,7 @@ class Sockettapd final : public Application
   void goto_background();
 
   // Called when a thread ID was received through the <config-session>...</config-session> message.
-  void received_session_id(SessionID const& session_id, evio::Socket& client);
+  void received_session_id(SessionID const& session_id, std::string const& agent_name, evio::Socket& client);
 
   // Get application instance.
   static Sockettapd& instance() { return static_cast<Sockettapd&>(Application::instance()); }
@@ -56,6 +58,7 @@ class Sockettapd final : public Application
   bool foreground() const { return opt_foreground_; }
   std::string socket_name() const { return socket_arg_ + ".sock"; }
   std::filesystem::path const& projectdir() const;
+  std::filesystem::path const& planroot() const;
 
  protected:
   // Parse remountd-specific command line parameters.

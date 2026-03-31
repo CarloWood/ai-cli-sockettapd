@@ -36,6 +36,18 @@ std::filesystem::path const& Sockettapd::projectdir() const
   return projectdir_;
 }
 
+std::filesystem::path const& Sockettapd::planroot() const
+{
+  if (planroot_.empty())
+  {
+    char const* const planroot_env = ::getenv("PLANROOT");
+    if (!planroot_env || !*planroot_env)
+      THROW_ALERT("PLANROOT is not set and --planroot was not passed.");
+    planroot_ = planroot_env;
+  }
+  return planroot_;
+}
+
 //virtual
 void Sockettapd::command_line_parameters_parsed()
 {
@@ -83,7 +95,7 @@ bool Sockettapd::parse_command_line_parameter(std::string_view arg, int argc, ch
     return true;
   }
 
-  if (arg == "--projectdir" || arg == "--log")
+  if (arg == "--projectdir" || arg == "--planroot" || arg == "--log")
   {
     ++*index;
     if (*index >= argc)
@@ -92,6 +104,11 @@ bool Sockettapd::parse_command_line_parameter(std::string_view arg, int argc, ch
     {
       projectdir_ = argv[*index];
       Dout(dc::notice, "projectdir_ set to " << projectdir_ << ".");
+    }
+    else if (arg == "--planroot")
+    {
+      planroot_ = argv[*index];
+      Dout(dc::notice, "planroot_ set to " << planroot_ << ".");
     }
 #ifdef CWDEBUG
     else
@@ -109,7 +126,7 @@ bool Sockettapd::parse_command_line_parameter(std::string_view arg, int argc, ch
 //virtual
 void Sockettapd::print_usage_extra(std::ostream& os) const
 {
-  os << "[--one-shot][--foreground][--projectdir <dirname>][--log <logfile>][--socket <name>]";
+  os << "[--one-shot][--foreground][--projectdir <dirname>][--planroot <dirname>][--log <logfile>][--socket <name>]";
 }
 
 //virtual
@@ -143,81 +160,40 @@ void Sockettapd::goto_background()
 #endif
 }
 
-void Sockettapd::create_session_id_dir(evio::Socket& client)
+void Sockettapd::create_session_id_dir()
 {
   // Create $PROJECTDIR/AAP/ThreadID/<session_id> and update $PROJECTDIR/AAP/{analyst,planner,coder}/id symlink if applicable.
 
   std::string const session_id_str = session_id_.value().to_string();
-  std::filesystem::path const thread_dir = projectdir() / "AAP" / "ThreadID" / session_id_str;
+  std::filesystem::path const thread_dir = planroot() / "ThreadID" / session_id_str;
+
+  std::error_code ec;
+  if (!std::filesystem::exists(thread_dir, ec) || ec)
   {
-    std::error_code ec;
-    std::filesystem::create_directories(thread_dir, ec);
+    if (!ec)
+      std::filesystem::create_directories(thread_dir, ec);
     if (ec)
       THROW_ALERT("Failed to create directory [DIR]: [ERROR].", AIArgs("[DIR]", thread_dir.string())("[ERROR]", ec.message()));
   }
 
-  // Record (or verify) the mode of this thread directory.
-  // A thread can only be owned by one daemon mode (socket_arg_).
+  // Record the current agent for this thread directory.
   {
     std::filesystem::path const mode_path = thread_dir / "mode";
-    std::error_code ec;
-    if (std::filesystem::exists(mode_path, ec))
-    {
-      if (ec)
-        THROW_ALERT("Failed to check existence of [PATH]: [ERROR].", AIArgs("[PATH]", mode_path.string())("[ERROR]", ec.message()));
-
-      if (!std::filesystem::is_regular_file(mode_path, ec))
-      {
-        if (ec)
-          THROW_ALERT("Failed to stat [PATH]: [ERROR].", AIArgs("[PATH]", mode_path.string())("[ERROR]", ec.message()));
-        THROW_ALERT("[PATH] exists but is not a regular file.", AIArgs("[PATH]", mode_path.string()));
-      }
-
-      std::ifstream in(mode_path, std::ios::in | std::ios::binary);
-      if (!in)
-        THROW_ALERT("Failed to open [PATH] for reading.", AIArgs("[PATH]", mode_path.string()));
-
-      std::string mode_value((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-      if (!in.good() && !in.eof())
-        THROW_ALERT("Failed to read [PATH].", AIArgs("[PATH]", mode_path.string()));
-
-      auto trim = [](std::string& s) {
-        auto const is_space = [](unsigned char c) { return std::isspace(c) != 0; };
-        while (!s.empty() && is_space(static_cast<unsigned char>(s.back())))
-          s.pop_back();
-        size_t start = 0;
-        while (start < s.size() && is_space(static_cast<unsigned char>(s[start])))
-          ++start;
-        if (start > 0)
-          s.erase(0, start);
-      };
-      trim(mode_value);
-
-      if (mode_value != socket_arg_)
-      {
-        client.close();
-        THROW_ALERT("ThreadID directory [DIR] is already in mode [MODE] (expected [EXPECTED]).",
-            AIArgs("[DIR]", thread_dir.string())("[MODE]", mode_value)("[EXPECTED]", socket_arg_));
-      }
-    }
-    else
-    {
-      if (ec)
-        THROW_ALERT("Failed to check existence of [PATH]: [ERROR].", AIArgs("[PATH]", mode_path.string())("[ERROR]", ec.message()));
-
-      std::ofstream out(mode_path, std::ios::out | std::ios::binary | std::ios::trunc);
-      if (!out)
-        THROW_ALERT("Failed to open [PATH] for writing.", AIArgs("[PATH]", mode_path.string()));
-      out << socket_arg_ << "\n";
-      if (!out)
-        THROW_ALERT("Failed to write [PATH].", AIArgs("[PATH]", mode_path.string()));
-    }
+    std::ofstream out(mode_path, std::ios::out | std::ios::binary | std::ios::trunc);
+    if (!out)
+      THROW_ALERT("Failed to open [PATH] for writing.", AIArgs("[PATH]", mode_path.string()));
+    out << agent_name_ << "\n";
+    if (!out)
+      THROW_ALERT("Failed to write [PATH].", AIArgs("[PATH]", mode_path.string()));
   }
 
-  if (socket_arg_ == "analyst" || socket_arg_ == "planner" || socket_arg_ == "coder")
+  if (agent_name_ == "analyst" || agent_name_ == "planner" || agent_name_ == "coder")
   {
-    std::filesystem::path const link_path = projectdir() / "AAP" / socket_arg_ / "id";
-    std::error_code ec;
+    std::filesystem::path const link_path = planroot() / agent_name_ / "id";
+    std::filesystem::path const relative_target = std::filesystem::path("..") / "ThreadID" / session_id_str;
+    std::filesystem::create_directories(link_path.parent_path(), ec);
+    if (ec)
+      THROW_ALERT("Failed to create directory [DIR]: [ERROR].", AIArgs("[DIR]", link_path.parent_path().string())("[ERROR]", ec.message()));
     if (std::filesystem::exists(link_path, ec))
     {
       if (ec)
@@ -246,45 +222,33 @@ void Sockettapd::create_session_id_dir(evio::Socket& client)
         std::filesystem::remove(link_path, ec);
         if (ec)
           THROW_ALERT("Failed to remove symlink [PATH]: [ERROR].", AIArgs("[PATH]", link_path.string())("[ERROR]", ec.message()));
-        std::filesystem::create_directory_symlink(thread_dir, link_path, ec);
+        std::filesystem::create_directory_symlink(relative_target, link_path, ec);
         if (ec)
           THROW_ALERT("Failed to create symlink [PATH] -> [TARGET]: [ERROR].",
-              AIArgs("[PATH]", link_path.string())("[TARGET]", thread_dir.string())("[ERROR]", ec.message()));
+              AIArgs("[PATH]", link_path.string())("[TARGET]", relative_target.string())("[ERROR]", ec.message()));
       }
     }
     else
     {
       if (ec)
         THROW_ALERT("Failed to check existence of [PATH]: [ERROR].", AIArgs("[PATH]", link_path.string())("[ERROR]", ec.message()));
-      std::filesystem::create_directory_symlink(thread_dir, link_path, ec);
+      std::filesystem::create_directory_symlink(relative_target, link_path, ec);
       if (ec)
         THROW_ALERT("Failed to create symlink [PATH] -> [TARGET]: [ERROR].",
-            AIArgs("[PATH]", link_path.string())("[TARGET]", thread_dir.string())("[ERROR]", ec.message()));
+            AIArgs("[PATH]", link_path.string())("[TARGET]", relative_target.string())("[ERROR]", ec.message()));
     }
   }
 }
 
-void Sockettapd::received_session_id(SessionID const& session_id, evio::Socket& client)
+void Sockettapd::received_session_id(SessionID const& session_id, std::string const& agent_name, evio::Socket& client)
 {
-  DoutEntering(dc::notice, "Sockettapd::received_session_id(" << session_id << ", " << &client << ")");
+  DoutEntering(dc::notice, "Sockettapd::received_session_id(" << session_id << ", \"" << agent_name << "\", " << &client << ")");
 
   boost::intrusive_ptr<evio::Socket> new_client(&client);
 
-  if (!session_id_)
-  {
-    session_id_ = session_id;
-    create_session_id_dir(client);
-    client_ = std::move(new_client);
-    return;
-  }
-
-  if (*session_id_ != session_id)
-  {
-    // This client is not compatible with the thread that owns this daemon.
-    client.close();
-    THROW_ALERT("Received a different Thread ID ([NEW]) than expected ([OLD]).",
-        AIArgs("[NEW]", session_id.to_string())("[OLD]", session_id_->to_string()));
-  }
+  session_id_ = session_id;
+  agent_name_ = agent_name;
+  create_session_id_dir();
 
   // Same thread id: keep the newest connection and drop any older still-connected client.
   if (client_ && client_.get() != new_client.get())

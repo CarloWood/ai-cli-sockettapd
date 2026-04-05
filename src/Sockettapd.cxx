@@ -6,6 +6,8 @@
 #include <fstream>
 #include <iterator>
 #include <unistd.h>
+#include <sys/stat.h>   // utimensat
+#include <fcntl.h>      // AT_FDCWD
 
 Sockettapd::Sockettapd(int argc, char* argv[])
 {
@@ -24,16 +26,16 @@ Sockettapd::~Sockettapd()
 #endif
 }
 
-std::filesystem::path const& Sockettapd::projectdir() const
+std::filesystem::path const& Sockettapd::workspace_root() const
 {
-  if (projectdir_.empty())
+  if (workspace_root_.empty())
   {
-    char const* const projectdir_env = ::getenv("PROJECTDIR");
-    if (!projectdir_env || !*projectdir_env)
-      THROW_ALERT("PROJECTDIR is not set and --projectdir was not passed.");
-    projectdir_ = projectdir_env;
+    char const* const workspace_root_env = ::getenv("WORKSPACE_ROOT");
+    if (!workspace_root_env || !*workspace_root_env)
+      THROW_ALERT("WORKSPACE_ROOT is not set and --workspace-root was not passed.");
+    workspace_root_ = workspace_root_env;
   }
-  return projectdir_;
+  return workspace_root_;
 }
 
 std::filesystem::path const& Sockettapd::planroot() const
@@ -56,7 +58,7 @@ void Sockettapd::command_line_parameters_parsed()
 #ifdef CWDEBUG
   // Make logfile_name_ absolute.
   if (logfile_name_.is_relative())
-    logfile_name_ = projectdir() / logfile_name_;
+    logfile_name_ = workspace_root() / logfile_name_;
 
   Dout(dc::notice, "logfile_name_ is now " << logfile_name_);
 #endif
@@ -95,15 +97,15 @@ bool Sockettapd::parse_command_line_parameter(std::string_view arg, int argc, ch
     return true;
   }
 
-  if (arg == "--projectdir" || arg == "--planroot" || arg == "--log")
+  if (arg == "--workspace-root" || arg == "--planroot" || arg == "--log")
   {
     ++*index;
     if (*index >= argc)
       THROW_ALERT("Missing argument for [ARG]", AIArgs("[ARG]", arg));
-    if (arg == "--projectdir")
+    if (arg == "--workspace-root")
     {
-      projectdir_ = argv[*index];
-      Dout(dc::notice, "projectdir_ set to " << projectdir_ << ".");
+      workspace_root_ = argv[*index];
+      Dout(dc::notice, "workspace_root_ set to " << workspace_root_ << ".");
     }
     else if (arg == "--planroot")
     {
@@ -126,7 +128,7 @@ bool Sockettapd::parse_command_line_parameter(std::string_view arg, int argc, ch
 //virtual
 void Sockettapd::print_usage_extra(std::ostream& os) const
 {
-  os << "[--one-shot][--foreground][--projectdir <dirname>][--planroot <dirname>][--log <logfile>][--socket <name>]";
+  os << "[--one-shot][--foreground][--workspace-root <dirname>][--planroot <dirname>][--log <logfile>][--socket <name>]";
 }
 
 //virtual
@@ -160,9 +162,15 @@ void Sockettapd::goto_background()
 #endif
 }
 
+void touch_symlink(std::filesystem::path const& link_path)
+{
+  if (utimensat(AT_FDCWD, link_path.c_str(), nullptr, AT_SYMLINK_NOFOLLOW) == -1)
+    THROW_ALERTE("utimensat failed for [PATH]", AIArgs("[PATH]", link_path.string()));
+}
+
 void Sockettapd::create_session_id_dir()
 {
-  // Create $PROJECTDIR/AAP/ThreadID/<session_id> and update $PROJECTDIR/AAP/{analyst,planner,coder}/id symlink if applicable.
+  // Create $WORKSPACE_ROOT/AAP/ThreadID/<session_id> and update $WORKSPACE_ROOT/AAP/{analyst,planner,coder}/id symlink if applicable.
 
   std::string const session_id_str = session_id_.value().to_string();
   std::filesystem::path const thread_dir = planroot() / "ThreadID" / session_id_str;
@@ -227,6 +235,8 @@ void Sockettapd::create_session_id_dir()
           THROW_ALERT("Failed to create symlink [PATH] -> [TARGET]: [ERROR].",
               AIArgs("[PATH]", link_path.string())("[TARGET]", relative_target.string())("[ERROR]", ec.message()));
       }
+      else
+        touch_symlink(link_path);
     }
     else
     {

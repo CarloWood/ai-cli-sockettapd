@@ -20,18 +20,18 @@ class Socket;
 class Sockettapd final : public Application
 {
  private:
-  bool opt_foreground_{false};                  // Set if --foreground.
-  bool opt_one_shot_{false};                    // Set if --one-shot.
-  mutable std::filesystem::path projectdir_;    // Argument passed to --projectdir <dir>, or read from $PROJECTDIR.
-  mutable std::filesystem::path planroot_;      // Argument passed to --planroot <dir>, or read from $PLANROOT.
-  std::string socket_arg_{ "shell_exec" };      // Argument passed to --socket <arg>.
-  std::optional<SessionID> session_id_;         // Set by received_session_id().
-  std::string agent_name_;                      // Set by received_session_id().
-  boost::intrusive_ptr<evio::Socket> client_;   // Current client for session_id_ (if any).
+  bool opt_foreground_{false};                          // Set if --foreground.
+  bool opt_one_shot_{false};                            // Set if --one-shot.
+  mutable std::filesystem::path workspace_root_;        // Argument passed to --workspace-root <dir>, or read from $WORKSPACE_ROOT.
+  mutable std::filesystem::path planroot_;              // Argument passed to --planroot <dir>, or read from $PLANROOT.
+  std::string socket_arg_{ "shell_exec" };              // Argument passed to --socket <arg>.
+  std::optional<SessionID> session_id_;                 // Set by received_session_id().
+  std::string agent_name_;                              // Set by received_session_id().
+  boost::intrusive_ptr<evio::Socket> client_;           // Current client for session_id_ (if any).
 #ifdef CWDEBUG
-  std::filesystem::path logfile_name_;          // Argument passed to --log <file>.
-  std::mutex logfile_mutex_;                    // Used to protect the logfile.
-  std::ofstream logfile_;                       // Log file, opened if --log is given and the daemon runs in the background.
+  std::filesystem::path logfile_name_;                  // Argument passed to --log <file>.
+  std::mutex logfile_mutex_;                            // Used to protect the logfile.
+  std::ofstream logfile_;                               // Log file, opened if --log is given and the daemon runs in the background.
 #endif
 
  private:
@@ -57,7 +57,7 @@ class Sockettapd final : public Application
   bool one_shot() const { return opt_one_shot_; }
   bool foreground() const { return opt_foreground_; }
   std::string socket_name() const { return socket_arg_ + ".sock"; }
-  std::filesystem::path const& projectdir() const;
+  std::filesystem::path const& workspace_root() const;
   std::filesystem::path const& planroot() const;
 
  protected:

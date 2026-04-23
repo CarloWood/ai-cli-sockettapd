@@ -184,19 +184,19 @@ void Sockettapd::create_session_id_dir()
       THROW_ALERT("Failed to create directory [DIR]: [ERROR].", AIArgs("[DIR]", thread_dir.string())("[ERROR]", ec.message()));
   }
 
-  // Record the current agent for this thread directory.
-  {
-    std::filesystem::path const mode_path = thread_dir / "mode";
-    std::ofstream out(mode_path, std::ios::out | std::ios::binary | std::ios::trunc);
-    if (!out)
-      THROW_ALERT("Failed to open [PATH] for writing.", AIArgs("[PATH]", mode_path.string()));
-    out << agent_name_ << "\n";
-    if (!out)
-      THROW_ALERT("Failed to write [PATH].", AIArgs("[PATH]", mode_path.string()));
-  }
-
   if (agent_name_ == "analyst" || agent_name_ == "planner" || agent_name_ == "coder")
   {
+    // Record the current (primary) agent for this thread directory.
+    {
+      std::filesystem::path const mode_path = thread_dir / "mode";
+      std::ofstream out(mode_path, std::ios::out | std::ios::binary | std::ios::trunc);
+      if (!out)
+        THROW_ALERT("Failed to open [PATH] for writing.", AIArgs("[PATH]", mode_path.string()));
+      out << agent_name_ << "\n";
+      if (!out)
+        THROW_ALERT("Failed to write [PATH].", AIArgs("[PATH]", mode_path.string()));
+    }
+
     std::filesystem::path const link_path = planroot() / agent_name_ / "id";
     std::filesystem::path const relative_target = std::filesystem::path("..") / "ThreadID" / session_id_str;
     std::filesystem::create_directories(link_path.parent_path(), ec);
